@@ -224,9 +224,9 @@ Rules for reading the windows:
 
 Cost on a 5-min video: ~10–15 windows × a few seconds of `small.en` each ≈ 2 minutes. It is the difference between a clean cut and re-doing the whole back half.
 
-## Step 3 — Show the plan, get confirmation
+## Step 3 — Show the plan, render immediately
 
-Print a summary BEFORE rendering:
+**Do NOT wait for approval — print the summary and start the render in the same turn** (changed 2026-07-09: the approval gate cost Louise a wasted wait when she didn't notice the question; the render is non-destructive and cheap to redo, so render-first is strictly better). Print this summary, then go straight to Step 4:
 
 ```
 Original duration: 7m 25s
@@ -247,7 +247,7 @@ Notable preserved long pauses: list timestamps + context (laughs, punchlines)
 - Target compression: 40–60% in aggressive mode.
 - **Exception — retake-heavy footage (2026-07-02):** when most of the runtime is abandoned takes, the compression comes from dropping whole lines, not word-level slicing — median keep lands at 3–5s and compression at 65–75%, and that's CORRECT. Judge by compression % and final-script cleanliness instead; do NOT force extra mid-sentence cuts into fluent kept takes just to hit the 1.1–1.5s median (that target is for filler-dense monologue where nothing is re-recorded).
 
-Wait for "go" before rendering. Don't render speculatively.
+Run the self-check yourself and fix violations before rendering — that's the quality gate now, not the user. Then render immediately. The user reviews the *result*; if a cut killed a laugh or an intentional pause, adjust the keep list and re-render (fast — trim/concat, not re-transcription).
 
 ## Step 3.5 — Manual timeline editor (OPTIONAL — only when Louise asks for it)
 
@@ -323,7 +323,7 @@ This avoids re-encoding entirely on the trim pass.
 - **Don't skip `-hwaccel videotoolbox`** on the proxy step. HEVC software decode on a 7-min 4K source can take 5+ minutes. With the flag, ~30s.
 - **Don't use the `select` filter for cuts.** It misaligns audio. Use trim+concat.
 - **Don't use `-preset medium` (the libx264 default).** It's ~3× slower than `-preset fast` for no quality gain on a working copy.
-- **Don't render before the user confirms the cut list.** Sometimes "silent" gaps contain laughs the user wants to keep; sometimes a "filler" is intentional emphasis. Print, wait, then render.
+- **Don't wait for approval before rendering** (changed 2026-07-09 — the gate wasted more time than it saved). Print the plan, render immediately. The old worry (a "silent" gap holding a laugh, a "filler" that's intentional emphasis) is handled by the amplitude check below + preserved-pauses list in the summary — and a bad cut just means a quick re-render.
 - **Don't trim a long "silence" without checking amplitude** — that's usually laughter, a thinking pause, or a setup-payoff beat.
 - **Don't `whisper` the entire raw source if a proxy exists.** Run whisper against `audio.wav` extracted from the proxy.
 - **Don't re-encode audio twice.** If you only changed video, use `-c:a copy` to skip an unnecessary AAC pass.
