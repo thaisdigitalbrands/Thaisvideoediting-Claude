@@ -9,9 +9,9 @@ Tighten a long-form recording **aggressively**: remove silences, fillers, hedges
 
 > **This skill is more accurate than cutting from Whisper alone.** Cuts are driven by **Montreal Forced Aligner (MFA)** word boundaries (~10–20ms precision, with true inter-word silences as explicit intervals), not Whisper timestamps (±100–300ms, with pauses embedded inside word durations). Whisper is used only to produce the transcript *text* that MFA aligns to the audio. The result: tighter cuts, no clipped word onsets/tails, and reliable silence detection.
 
-> **⚠️ But MFA times are a DRAFT, not ground truth (burned 2026-07-02, `AI is bad at jokes` DJI run).** MFA can only align the transcript whisper gave it. On retake-heavy footage whisper COLLAPSES repeated lines, so MFA smears one transcribed instance across several spoken takes — measured drift on that run was **1–6 seconds** in the back half ("the average of all working code": MFA said 217.2s, real onset 225.4s; the final "what this means" take: MFA said 114.7s, real 130.4s). Every keep boundary must be **ground-truthed with isolated-window re-transcription (Step 2.5)** before rendering. Skipping that step on that video would have produced garbage cuts for the entire second half.
+> **⚠️ But MFA times are a DRAFT, not ground truth (burned 2026-07-02, retake-heavy DJI run).** MFA can only align the transcript whisper gave it. On retake-heavy footage whisper COLLAPSES repeated lines, so MFA smears one transcribed instance across several spoken takes — measured drift on that run was **1–6 seconds** in the back half ("the average of all working code": MFA said 217.2s, real onset 225.4s; the final "what this means" take: MFA said 114.7s, real 130.4s). Every keep boundary must be **ground-truthed with isolated-window re-transcription (Step 2.5)** before rendering. Skipping that step on that video would have produced garbage cuts for the entire second half.
 
-**Style target** (calibrated from `AI mogging my dad.mp4`):
+**Style target** (aggressive talking-head):
 - ~1 cut every 1.3–1.5 seconds (median cut duration ~1.1s)
 - ~40–60% total runtime reduction from raw
 - Cuts happen mid-sentence, not just between sentences
@@ -63,7 +63,7 @@ whisper /tmp/cut-video/$NAME/audio.wav \
   --output_dir /tmp/cut-video/$NAME --language en
 ```
 
-**Model choice (revised 2026-07-02 — "we only need the words" was WRONG):** the transcript text IS the alignment input, so transcript errors become timing errors. On the `AI is bad at jokes` run, `tiny.en` dropped exactly the words the old warning predicted ("bland", "slop"), misheard "Compare this to" as "comparative is", and collapsed full-line retakes — and MFA, aligning that wrong text, drifted 1–6s across the back half. Use **`tiny.en` only for a first fast pass to see the take structure**; if the transcript shows retakes/repetitions, or the footage is noisy/outdoor, the per-region ground-truth pass (Step 2.5) with `small.en` supplies the real cut times anyway. (A full-pass `small.en` transcript is a reasonable upgrade for the MFA input too — ~1–2 min on a 5-min video — but it ALSO collapses retakes, so it does not remove the need for Step 2.5.) For non-English use `--model base` and drop `--language`. We keep `--word_timestamps True` only so whisper times survive as a cross-check/fallback (Step 1.5 caveats, 2a-legacy) — never as the primary cut source.
+**Model choice (revised 2026-07-02 — "we only need the words" was WRONG):** the transcript text IS the alignment input, so transcript errors become timing errors. On a retake-heavy outdoor run, `tiny.en` dropped exactly the words the old warning predicted ("bland", "slop"), misheard "Compare this to" as "comparative is", and collapsed full-line retakes — and MFA, aligning that wrong text, drifted 1–6s across the back half. Use **`tiny.en` only for a first fast pass to see the take structure**; if the transcript shows retakes/repetitions, or the footage is noisy/outdoor, the per-region ground-truth pass (Step 2.5) with `small.en` supplies the real cut times anyway. (A full-pass `small.en` transcript is a reasonable upgrade for the MFA input too — ~1–2 min on a 5-min video — but it ALSO collapses retakes, so it does not remove the need for Step 2.5.) For non-English use `--model base` and drop `--language`. We keep `--word_timestamps True` only so whisper times survive as a cross-check/fallback (Step 1.5 caveats, 2a-legacy) — never as the primary cut source.
 
 ## Step 1.5 — Align the transcript to the audio with MFA (Montreal Forced Aligner) — the timing engine
 
@@ -184,14 +184,14 @@ Self-shot intros/promos contain **whole-sentence retakes** separated by 5–60s 
 - **Reaction sounds.** Sighs, "ooh", "wow", gasps — all content.
 - **Single-word punchlines.** If a sentence ends with a one-word zinger after a beat, keep the beat.
 
-### 2f. STRICTNESS PASS — zero tolerance for repetitions (Louise, 2026-06-10: "get rid of ANY repetitions")
+### 2f. STRICTNESS PASS — zero tolerance for repetitions (2026-06-10: "get rid of ANY repetitions")
 After building the keep list, run a machine scan — do NOT trust your eyes on the transcript:
 1. **Scan the MFA words that fall INSIDE kept ranges** for (a) consecutive duplicate words, (b) duplicate bigrams ACROSS segment boundaries (a flubbed restart can straddle a cut — "…meet her. And we're [flub] / And we're going to…" survived a snap once), (c) duplicate sentence-openers in adjacent sentences ("So… So…" → cut the second).
 2. **Cut hedge flubs** even mid-stat: "I believe", opener "Like", "I guess". Keep rhetorical repetition (parallel structure) — that's intentional.
 3. **When excising a word, cut to the FULL MFA word end (+0.01s)** — a 15ms vowel residue still reads as the word.
 4. **MFA OOV trap (burned 2026-06-10): acronyms/names missing from MFA's dictionary ("AI", brand names) silently VANISH from the alignment** — the word gets absorbed into its neighbor, and snapping a keep-end to "the last MFA word" then CLIPS the real spoken word. Guard: if whisper's chunk end exceeds the last MFA word end by >0.2s, trust the LATER of (whisper end, next silencedetect onset) for that boundary — and verify that junction with an isolated-segment transcription.
 5. **Verification trap: whisper-of-the-output LIES twice.** It (a) COLLAPSES surviving stutters (a real "and we're… and we're" transcribes once — looks clean, isn't), and (b) HALLUCINATES context words at cut junctions (a "girls"+"Enjoy" junction transcribes as "So enjoy" — looks dirty, isn't). So verify with BOTH: the kept-range MFA dup-scan (catches real stutters), and per-segment isolated transcription of any suspect junction (clears hallucinations). Only ship when the dup-scan returns NONE.
-6. **⭐ CROSS-ASR VERIFICATION — the strongest stutter detector (discovered 2026-06-10).** The MFA dup-scan only sees the words WHISPER transcribed — if whisper collapsed a phrase retake ("with the most recent video… with the most recent video" → once), MFA never knows it exists and the scan passes a dirty cut. The fix: **run the cut through a SECOND, independent ASR and diff.** Tella's transcript after upload is perfect for this (different model → different blind spots): it caught 5 repetitions in one pass that the whisper+MFA pipeline certified clean (a doubled phrase, a surviving "or, or", two mid-word fragments "pers-"/"per-", a doubled "into"). Workflow: upload the cut to Tella (or any second ASR) → scan ITS transcript for dup words/bigrams/phrases and mid-word fragments ("xyz-") → map hits back to source times → cut → re-verify. Disagreement between the two ASRs marks exactly the regions to fix or flag to the user.
+6. **⭐ CROSS-ASR VERIFICATION — the strongest stutter detector (discovered 2026-06-10).** The MFA dup-scan only sees the words WHISPER transcribed — if whisper collapsed a phrase retake ("with the most recent video… with the most recent video" → once), MFA never knows it exists and the scan passes a dirty cut. The fix: **run the cut through a SECOND, independent ASR and diff.** A different model has different blind spots: it caught 5 repetitions in one pass that the whisper+MFA pipeline certified clean (a doubled phrase, a surviving "or, or", two mid-word fragments "pers-"/"per-", a doubled "into"). Workflow: run a second ASR on the cut → scan ITS transcript for dup words/bigrams/phrases and mid-word fragments ("xyz-") → map hits back to source times → cut → re-verify. Disagreement between the two ASRs marks exactly the regions to fix or flag to the user.
 
 ## Step 2.5 — GROUND-TRUTH every keep boundary with isolated windows (added 2026-07-02 — this step saved the whole run)
 
@@ -226,7 +226,7 @@ Cost on a 5-min video: ~10–15 windows × a few seconds of `small.en` each ≈ 
 
 ## Step 3 — Show the plan, render immediately
 
-**Do NOT wait for approval — print the summary and start the render in the same turn** (changed 2026-07-09: the approval gate cost Louise a wasted wait when she didn't notice the question; the render is non-destructive and cheap to redo, so render-first is strictly better). Print this summary, then go straight to Step 4:
+**Do NOT wait for approval — print the summary and start the render in the same turn** (changed 2026-07-09: the approval gate cost a wasted wait when the user didn't notice the question; the render is non-destructive and cheap to redo, so render-first is strictly better). Print this summary, then go straight to Step 4:
 
 ```
 Original duration: 7m 25s
@@ -249,11 +249,11 @@ Notable preserved long pauses: list timestamps + context (laughs, punchlines)
 
 Run the self-check yourself and fix violations before rendering — that's the quality gate now, not the user. Then render immediately. The user reviews the *result*; if a cut killed a laugh or an intentional pause, adjust the keep list and re-render (fast — trim/concat, not re-transcription).
 
-## Step 3.5 — Manual timeline editor (OPTIONAL — only when Louise asks for it)
+## Step 3.5 — Manual timeline editor (OPTIONAL — only when the user asks for it)
 
-(Demoted from always-on 2026-07-02: Louise found the editor fiddly in practice and prefers the pipeline to just cut tighter automatically — the intra-take pause trimming in Step 2.5 came out of that. Generate the editor only if she asks to review/adjust by hand.)
+(Demoted from always-on 2026-07-02: the editor is fiddly in practice; the pipeline should just cut tighter automatically — the intra-take pause trimming in Step 2.5 came out of that. Generate the editor only if the user asks to review/adjust by hand.)
 
-A timeline editor so she can trim silences and drop anything she doesn't want, before (or after) the render:
+A timeline editor so the user can trim silences and drop anything they don't want, before (or after) the render:
 
 ```bash
 # keeps.json must be [start, end, "transcript text"] triplets in the working dir;
@@ -262,18 +262,18 @@ python3 ~/.claude/skills/cut-video/make_review.py /tmp/cut-video/$NAME
 open /tmp/cut-video/$NAME/review.html
 ```
 
-What the page gives her (self-contained HTML next to `proxy.mp4`, no server needed — waveform peaks and silence suggestions are embedded in the file, so it works on `file://`):
+What the page gives the user (self-contained HTML next to `proxy.mp4`, no server needed — waveform peaks and silence suggestions are embedded in the file, so it works on `file://`):
 - **Canvas waveform timeline of the FULL source**, crisp at every zoom. **Pinch or ctrl/⌘+wheel zooms centered on the cursor** (continuous, fit → 400px/s); mouse wheel pans; +/−/Fit buttons too. Click to scrub; playhead synced to the video.
 - **Drag ACROSS the waveform to delete that range** — the primary silence-removal gesture: see a flat stretch, swipe it, gone. Works across block boundaries (trims/splits/removes whatever it covers).
-- **Amber hatched bands = auto-suggested silences inside keep blocks** (peak-based, adaptive threshold — computed by the generator and embedded). Click a band to cut it (leaves 0.1s of pause at each side), or **"✂ Cut all"** with a min-duration slider to sweep every suggestion at once. On noisy mics the suggestions degrade — they're visual candidates, she judges.
-- **Drag a block's edges** to trim; the video seeks live while dragging so she hears the cut point. Selected edge nudges ±0.05s (buttons or ←/→, shift = 0.25s).
+- **Amber hatched bands = auto-suggested silences inside keep blocks** (peak-based, adaptive threshold — computed by the generator and embedded). Click a band to cut it (leaves 0.1s of pause at each side), or **"✂ Cut all"** with a min-duration slider to sweep every suggestion at once. On noisy mics the suggestions degrade — they're visual candidates, the user judges.
+- **Drag a block's edges** to trim; the video seeks live while dragging so the user hears the cut point. Selected edge nudges ±0.05s (buttons or ←/→, shift = 0.25s).
 - **Split at playhead** (`S`), **drop/restore** a block (`D`/⌫ or click its card), **double-click a gap** to resurrect cut footage, **undo** (`Z`, 60 levels).
 - Card list below with per-segment ▶ and transcript text; **"Preview final cut"** plays kept blocks back-to-back, skipping cuts — the render, live, without rendering.
 - **"Copy decisions for Claude"** copies `{"keeps": [[a,b], ...]}` — the full edited keep list in source-proxy seconds.
 
-Applying her decisions: the pasted `keeps` array REPLACES the old keep list — carry transcript text over by time-overlap with the previous `keeps.json` (blocks she created from gaps have no text; label them "(restored)"), rebuild `filter.txt`, re-render. The proxy is already there, so a revision costs seconds.
+Applying the user's decisions: the pasted `keeps` array REPLACES the old keep list — carry transcript text over by time-overlap with the previous `keeps.json` (blocks the user created from gaps have no text; label them "(restored)"), rebuild `filter.txt`, re-render. The proxy is already there, so a revision costs seconds.
 
-Boundary hygiene: her hand-dragged edges are intentional — do NOT re-snap them to MFA/ASR word boundaries. Only warn if an edge lands mid-word per the ground-truth words (say which word and offer the nearest clean boundary).
+Boundary hygiene: hand-dragged edges are intentional — do NOT re-snap them to MFA/ASR word boundaries. Only warn if an edge lands mid-word per the ground-truth words (say which word and offer the nearest clean boundary).
 
 ## Step 4 — Render with `trim` + `concat`, NOT `select`
 
@@ -313,7 +313,7 @@ This avoids re-encoding entirely on the trim pass.
 - Save final to `<source_dir>/cut_out/<source_name>_cut.mp4` (mkdir if missing)
 - Print one line: original duration → cleaned duration, percent cut, median cut, output path
 - `open` the file so the user can review immediately
-- Revisions are cheap: the proxy + ground-truthed times stay in the working dir, so "drop the second segment" / "tighten X" is a seconds-fast re-render. (If she asked for the Step 3.5 editor, remind her it's still live for pasting decisions back.)
+- Revisions are cheap: the proxy + ground-truthed times stay in the working dir, so "drop the second segment" / "tighten X" is a seconds-fast re-render. (If the user asked for the Step 3.5 editor, remind them it's still live for pasting decisions back.)
 - Offer to iterate: re-tune gap thresholds, switch tone preset, mark specific moments to preserve/cut
 
 ---
@@ -327,7 +327,7 @@ This avoids re-encoding entirely on the trim pass.
 - **Don't trim a long "silence" without checking amplitude** — that's usually laughter, a thinking pause, or a setup-payoff beat.
 - **Don't `whisper` the entire raw source if a proxy exists.** Run whisper against `audio.wav` extracted from the proxy.
 - **Don't re-encode audio twice.** If you only changed video, use `-c:a copy` to skip an unnecessary AAC pass.
-- **Don't be timid.** Default to `aggressive`. The reference cut style is fast — if the output feels "safe", it's not matching Louise's CapCut pacing.
+- **Don't be timid.** Default to `aggressive`. The reference cut style is fast — if the output feels "safe", it's not matching tight CapCut-style pacing.
 - **Don't render from MFA times alone on retake-heavy or noisy footage.** Measured 1–6s drift on the 2026-07-02 DJI run. Ground-truth every keep boundary with isolated windows (Step 2.5) first.
 - **Don't scale a portrait source to 1920:1080.** Probe orientation first; DJI/phone footage is usually 9:16.
 - **Don't trust window-edge word times** from an isolated transcription — a word touching the window boundary is clipped/stretched; re-window before using it as a cut point.
@@ -335,18 +335,18 @@ This avoids re-encoding entirely on the trim pass.
 
 ## Benchmark reference
 
-`AI mogging my dad.mp4` (2026-05-03, CapCut project `0501`):
-- 335 cuts in 460s = 1 cut / 1.37s
-- Median 1.13s, mean 1.37s
-- 41% of cuts < 1s, 12% < 0.5s
-- Only 3 cuts > 5s
-- Raw source compressed ~60%
+Aggressive talking-head pacing (what "aggressive" mode should feel like):
+- ~1 cut every 1.3–1.5 seconds
+- Median ~1.1s, mean ~1.4s
+- ~40% of cuts < 1s, ~12% < 0.5s
+- Only a few cuts > 5s
+- Raw source compressed ~40–60%
 
-Use this as ground-truth for "aggressive" mode tuning.
+Use this as the target for "aggressive" mode tuning.
 
 ## What this skill explicitly does NOT do
 
-- Add zooms, layouts, or motion graphics (separate concern — handled in CapCut or via [[tella-edit]])
+- Add zooms, layouts, or motion graphics (separate concern — handled in CapCut or your editor)
 - Add memes or b-roll (user-curated, see [[clipify]] for short-form cuts)
 - Burn captions (separate pass after cleanup)
 - Upload anywhere

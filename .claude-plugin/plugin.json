@@ -1,0 +1,7 @@
+{
+  "name": "thais-video-editing",
+  "description": "Claude video editing toolkit: tighten long recordings (cut-video), turn long videos into social shorts (clipify), and file dropped assets into a local library (assets-bot).",
+  "author": {
+    "name": "Thais"
+  }
+}
